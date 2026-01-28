@@ -106,7 +106,7 @@ class RecursiveChunking(AbstractBaseModule):
         return [
             {
                 "content": d.page_content,
-                "embedding": list(emb),
+                "embedding": np.array(emb).tolist(),
                 "metadata": {}
             }
             for d, emb in zip(docs, embeddings)
@@ -167,7 +167,7 @@ class PropositionalChunking(AbstractBaseModule):
                 if facts:
                     fact_embeddings = list(embedding_model.embed(facts))
                     for f, emb in zip(facts, fact_embeddings):
-                        chunks.append({"content": f, "embedding": list(emb), "metadata": {"origin_paragraph": p[:50]}})
+                        chunks.append({"content": f, "embedding": np.array(emb).tolist(), "metadata": {"origin_paragraph": p[:50]}})
             
         return chunks
 
@@ -206,7 +206,7 @@ class ContextualChunking(AbstractBaseModule):
         return [
             {
                 "content": c,
-                "embedding": list(emb),
+                "embedding": np.array(emb).tolist(),
                 "metadata": {"global_context": context}
             }
             for c, emb in zip(final_contents, embeddings)
@@ -273,7 +273,7 @@ class HierarchicalChunking(AbstractBaseModule):
             for text, emb, meta in zip(all_child_texts, embeddings, all_child_metadatas):
                 chunks_data.append({
                     "content": text,
-                    "embedding": list(emb),
+                    "embedding": np.array(emb).tolist(),
                     "metadata": meta
                 })
                 

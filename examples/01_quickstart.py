@@ -27,7 +27,7 @@ def main():
 
     # 3. Process a document
     # Note: Replace with a real path to a PDF
-    pdf_path = "sample_report.pdf"
+    pdf_path = "/home/localuser/RAGToolbox/examples/2509.00642v1.pdf"
     if os.path.exists(pdf_path):
         pipeline.ingest_document(pdf_path)
         

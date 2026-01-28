@@ -28,7 +28,7 @@ class RAGPipeline:
         self.ocr_module = OCRFactory.get_ocr(config)
         
         # Initialize Database Client (Remote Chroma)
-        self.db_client = chromadb.HttpClient(host="localhost", port=8000)
+        self.db_client = chromadb.HttpClient(host="10.246.47.192", port=8000)
         
         # Initialize Modules
         # We pass the client, but retrieval module will handle collection selection based on config

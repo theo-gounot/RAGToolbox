@@ -23,7 +23,7 @@ def test_pipeline_run(mock_gen, mock_eval, mock_rerank, mock_retrieval, mock_idx
     
         # Mock Run
         mock_retrieval_inst = mock_retrieval.return_value
-        mock_retrieval_inst.run.return_value = [{"content": "c1", "score": 0.9}]
+        mock_retrieval_inst.run.return_value = [{"id": "doc1", "content": "c1", "score": 0.9}]
     
         mock_gen.return_value.status_code = 200
         mock_gen.return_value.json.return_value = {"response": "The Answer"}

@@ -14,7 +14,14 @@ def test_ocr_factory_get_vlm(basic_config):
     assert isinstance(ocr, VLMOCR)
 
 @patch("src.land_rag.ocr.pdfium")
-def test_low_ocr_run(mock_pdfium, basic_config):
+@patch("src.land_rag.ocr.requests.post")
+def test_low_ocr_run(mock_post, mock_pdfium, basic_config):
+    # Mock API response for _clean_to_markdown
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"response": "Extracted Text"}
+    mock_post.return_value = mock_response
+
     ocr = LowOCR(basic_config)
     mock_doc = MagicMock()
     mock_pdfium.PdfDocument.return_value = mock_doc
@@ -90,11 +97,14 @@ def test_high_ocr_run(mock_run, basic_config):
 
 @patch("src.land_rag.ocr.ocr_predictor")
 @patch("src.land_rag.ocr.DocumentFile")
-def test_mid_ocr_run(mock_doc_file, mock_predictor, basic_config):
-    # If doctr is not installed, this test might be skipped or fail import in module
-    # We patched the class, but we need to ensure module doesn't error on import
-    # The module handles ImportError gracefully.
-    
+@patch("src.land_rag.ocr.requests.post")
+def test_mid_ocr_run(mock_post, mock_doc_file, mock_predictor, basic_config):
+    # Mock API response for _clean_to_markdown
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {"response": "DocTR Result"}
+    mock_post.return_value = mock_response
+
     # Setup mock
     basic_config.ocr_method = "mid"
     try:
@@ -106,8 +116,6 @@ def test_mid_ocr_run(mock_doc_file, mock_predictor, basic_config):
         mock_result.render.return_value = "DocTR Result"
         
         result = ocr.run("dummy.pdf")
-        # Note: Constructor calls ocr_predictor, run calls model
-        # Our Mock setup is a bit loose on the constructor call timing
-        # but verifies logical flow.
+        assert result == "DocTR Result"
     except ImportError:
         pytest.skip("DocTR not installed/mocked properly")
