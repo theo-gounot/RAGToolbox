@@ -18,11 +18,11 @@ class ChunkingParams(BaseModel):
     overlap: int = 200
 
 class ChunkingConfig(BaseModel):
-    method: Literal["recursive", "semantic", "late", "propositional", "contextual"]
+    method: Literal["recursive", "semantic", "late", "propositional", "contextual", "hierarchical"] # Added hierarchical
     params: ChunkingParams
 
 class RetrievalConfig(BaseModel):
-    methods: List[Literal["standard", "sentence_window", "multi_query", "hyde"]]
+    methods: List[Literal["standard", "sentence_window", "multi_query", "hyde", "graph_hop"]] # Added graph_hop
     hybrid_search: bool
     reranker: bool
 
@@ -30,11 +30,20 @@ class EvalConfig(BaseModel):
     enabled: bool
     metrics: List[Literal["faithfulness", "relevancy", "context_precision"]]
 
+class KnowledgeGraphConfig(BaseModel):
+    enabled: bool = False
+    triplet_extraction_model: str = "llama3.1:8b" # Model to use for extracting triplets
+
 class RAGConfig(BaseModel):
+    family_name: str = "default" # Family name for collection grouping
     ocr_method: Literal["low", "mid", "high", "VLM"]
     chunking: ChunkingConfig
     retrieval: RetrievalConfig
     eval: EvalConfig
+    knowledge_graph: KnowledgeGraphConfig = Field(default_factory=KnowledgeGraphConfig)
+    agentic_rag: bool = False
+    embedding_model: str = "BAAI/bge-small-en-v1.5" # Changed from "fastembed"
+    ollama_model: str = LLM_MODEL
 
 # --- Output Schema ---
 

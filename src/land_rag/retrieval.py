@@ -21,10 +21,20 @@ class RetrievalModule(AbstractBaseModule):
     def __init__(self, config: RAGConfig, db_client: Any):
         super().__init__(config)
         self.db_client = db_client
+        
+        # Family-based collection names
+        self.vector_col_name = f"{config.family_name}_vector"
+        self.graph_col_name = f"{config.family_name}_graph"
+        
         if chromadb:
-            self.collection = self.db_client.get_or_create_collection("land_rag_collection")
+            self.collection = self.db_client.get_or_create_collection(self.vector_col_name)
+            try:
+                self.graph_collection = self.db_client.get_collection(self.graph_col_name)
+            except Exception:
+                self.graph_collection = None # Graph collection might not exist yet
         else:
             self.collection = None
+            self.graph_collection = None
         
         self.bm25: Optional[BM25Okapi] = None
         self.bm25_corpus: List[str] = []
@@ -46,24 +56,50 @@ class RetrievalModule(AbstractBaseModule):
 
     def _generate_multi_query(self, query: str) -> List[str]:
         prompt = f"Generate 3 different search query variations for the following user question to improve retrieval coverage. Return only the queries, one per line:\n\n{query}"
-        response = requests.post(
-            f"{OLLAMA_BASE_URL}/api/generate",
-            json={"model": LLM_MODEL, "prompt": prompt, "stream": False}
-        )
-        if response.status_code == 200:
-            text = response.json().get("response", "")
-            return [q.strip() for q in text.split('\n') if q.strip()]
+        try:
+            response = requests.post(
+                f"{OLLAMA_BASE_URL}/api/generate",
+                json={"model": self.config.ollama_model, "prompt": prompt, "stream": False}
+            )
+            if response.status_code == 200:
+                text = response.json().get("response", "")
+                return [q.strip() for q in text.split('\n') if q.strip()]
+        except Exception:
+            pass
         return [query]
 
     def _generate_hyde(self, query: str) -> str:
         prompt = f"Write a hypothetical answer to the following question. This answer will be used to semantic search for relevant documents. Be detailed:\n\nQuestion: {query}\n\nAnswer:"
-        response = requests.post(
-            f"{OLLAMA_BASE_URL}/api/generate",
-            json={"model": LLM_MODEL, "prompt": prompt, "stream": False}
-        )
-        if response.status_code == 200:
-            return response.json().get("response", query)
+        try:
+            response = requests.post(
+                f"{OLLAMA_BASE_URL}/api/generate",
+                json={"model": self.config.ollama_model, "prompt": prompt, "stream": False}
+            )
+            if response.status_code == 200:
+                return response.json().get("response", query)
+        except Exception:
+            pass
         return query
+
+    def _graph_hop_search(self, query: str) -> List[Dict[str, Any]]:
+        """
+        Performs a 'Hop' in the graph collection to find related facts.
+        """
+        if not self.graph_collection:
+            return []
+            
+        # We search for triplets relevant to the query
+        res = self.graph_collection.query(query_texts=[query], n_results=5)
+        results = []
+        for i in range(len(res['ids'][0])):
+            results.append({
+                "id": res['ids'][0][i],
+                "content": f"Graph Fact: {res['documents'][0][i]}",
+                "metadata": res['metadatas'][0][i] if res['metadatas'] else {},
+                "score": 1.0 - res['distances'][0][i] if res['distances'] else 0.0,
+                "method_origin": "graph_hop"
+            })
+        return results
 
     def run(self, query: str, **kwargs) -> List[Dict[str, Any]]:
         if not self.collection:
@@ -76,18 +112,37 @@ class RetrievalModule(AbstractBaseModule):
             search_query = self._generate_hyde(query)
         all_results = []
         vector_results = []
+        
+        # 1. Vector Search
         for q in queries:
             q_text = search_query if "hyde" in self.config.retrieval.methods else q
             res = self.collection.query(query_texts=[q_text], n_results=10)
             for i in range(len(res['ids'][0])):
+                # Retrieve Parent Content if available in metadata (Hierarchical)
+                content = res['documents'][0][i]
+                metadata = res['metadatas'][0][i] if res['metadatas'] else {}
+                
+                if "parent_content" in metadata:
+                    # Return parent content for context, but keep child score
+                    # We might want to prepend "Section X > Y" from hierarchy_path
+                    hierarchy = metadata.get("hierarchy_path", "")
+                    content = f"[{hierarchy}]\n{metadata['parent_content']}"
+
                 vector_results.append({
                     "id": res['ids'][0][i],
-                    "content": res['documents'][0][i],
-                    "metadata": res['metadatas'][0][i] if res['metadatas'] else {},
+                    "content": content,
+                    "metadata": metadata,
                     "score": 1.0 - res['distances'][0][i] if res['distances'] else 0.0,
                     "method_origin": "vector"
                 })
         all_results.append(vector_results)
+        
+        # 2. Graph Hop
+        if "graph_hop" in self.config.retrieval.methods or self.config.knowledge_graph.enabled:
+             graph_results = self._graph_hop_search(query)
+             all_results.append(graph_results)
+
+        # 3. BM25 / Hybrid
         if self.config.retrieval.hybrid_search:
             if not self.bm25:
                 self._build_bm25()
@@ -105,6 +160,7 @@ class RetrievalModule(AbstractBaseModule):
                         "method_origin": "bm25"
                     })
                 all_results.append(bm25_results)
+        
         merged_results = reciprocal_rank_fusion(all_results)
         if "sentence_window" in self.config.retrieval.methods:
             for doc in merged_results:

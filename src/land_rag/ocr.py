@@ -29,6 +29,28 @@ class OCRBase(AbstractBaseModule):
         """Extract text from a PDF file."""
         pass
 
+    def _clean_to_markdown(self, text: str) -> str:
+        """Uses LLM to clean raw OCR text into structured Markdown."""
+        prompt = (
+            "Clean and format the following raw OCR text into well-structured Markdown. "
+            "Maintain headers, lists, and tables if present. Fix broken words or layout issues:\n\n"
+            f"{text[:8000]}" # Limit to avoid context overflow
+        )
+        try:
+            response = requests.post(
+                f"{OLLAMA_BASE_URL}/api/generate",
+                json={
+                    "model": self.config.ollama_model if hasattr(self.config, 'ollama_model') else "llama3.1:8b",
+                    "prompt": prompt,
+                    "stream": False
+                }
+            )
+            if response.status_code == 200:
+                return response.json().get("response", text)
+        except Exception:
+            pass
+        return text
+
 class LowOCR(OCRBase):
     """Extraction using pypdfium2 (Text only, fast)."""
     def run(self, file_path: str, **kwargs) -> str:
@@ -38,7 +60,8 @@ class LowOCR(OCRBase):
             page = pdf.get_page(i)
             text_page = page.get_textpage()
             text_parts.append(text_page.get_text_range())
-        return "\n\n".join(text_parts)
+        raw_text = "\n\n".join(text_parts)
+        return self._clean_to_markdown(raw_text)
 
 class VLMOCR(OCRBase):
     """Extraction by converting pages to images and sending to a remote VLM (Vision Model)."""
@@ -96,7 +119,8 @@ class MidOCR(OCRBase):
         # Run inference
         result = self.model(doc)
         # Export as string (DocTR's render method gives a decent visual representation)
-        return result.render()
+        raw_text = result.render()
+        return self._clean_to_markdown(raw_text)
 
 class HighOCR(OCRBase):
     """
